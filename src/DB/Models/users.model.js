@@ -25,7 +25,9 @@ const userSchema = new Schema(
         },
         password: {
             type: String,
-            required: [true, "Password is required"],
+            required: function () {
+                return this.provider === providerEnum.SYSTEM;
+            },
             trim: true,
         },
         gender: {
@@ -47,7 +49,7 @@ const userSchema = new Schema(
         age: Number,
         DOB: Date,
         confirmEmail: Date,
-        profileImage: String,
+        profilePicture: String,
         coverImages: [String],
     },
     {
