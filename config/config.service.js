@@ -29,3 +29,7 @@ export const JWT_EXPIRES_IN_REFRESH = process.env.JWT_EXPIRES_IN_REFRESH || '1d'
 // Google OAuth
 export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
+// Email
+export const USER_EMAIL = process.env.USER_EMAIL;
+export const USER_PASSWORD = process.env.USER_PASSWORD;
+

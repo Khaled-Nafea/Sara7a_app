@@ -4,8 +4,10 @@ import { JWT_ADMIN_SECRET_ACCESS, JWT_ADMIN_SECRET_REFRESH,
     JWT_USER_SECRET_ACCESS, JWT_USER_SECRET_REFRESH } from '../../../config/config.service.js';
 import { signatureEnum, TokenTypeEnum } from '../enums/user.enum.js';
 import { badRequest, notFound } from '../response/error.response.js';
-import { findByID } from '../../DB/DB.repository.js';
+import { findByID,findOne } from '../../DB/DB.repository.js';
 import {UserModel} from '../../DB/Models/users.model.js';
+import { v4 as uuid } from 'uuid';
+import { TokenModel } from '../../DB/Models/token.models.js';
 
 export const generateToken = ({ payload, secretKey, options}) => {
     const token = jwt.sign(payload, secretKey, options);
@@ -34,11 +36,13 @@ export const getSignature = ({ signatureLevel = signatureEnum.USER }) => {
 export const getNewLoginCredentials = async (user) => {
    const signature = await getSignature({signatureLevel: user.role != signatureEnum.USER ? signatureEnum.ADMIN : signatureEnum.USER });
 
+   const jwtid = uuid();
+
    const accessToken = generateToken({ payload: { id: user._id }, secretKey: signature.accessSignature, 
-    options: { expiresIn: JWT_EXPIRES_IN_ACCESS } });
+    options: { expiresIn: JWT_EXPIRES_IN_ACCESS, jwtid } });
     
    const refreshToken = generateToken({ payload: { id: user._id }, secretKey: signature.refreshSignature, 
-    options: { expiresIn: JWT_EXPIRES_IN_REFRESH } });
+    options: { expiresIn: JWT_EXPIRES_IN_REFRESH, jwtid } });
 
    return { accessToken, refreshToken };
 };
@@ -57,8 +61,13 @@ export const decodedToken = async ({authrization , tokenType = TokenTypeEnum.ACC
     const decoded = verifyToken({ token, 
         secretKey: tokenType === TokenTypeEnum.ACCESS ? signature.accessSignature : signature.refreshSignature });
 
+    const isRevoked = await findOne({model: TokenModel, filter: { jti: decoded.jti }});
+    if(isRevoked) throw badRequest(`Token is revoked please login again`);
+
     const user = await findByID({model: UserModel, id: decoded.id});
     if(!user) throw notFound(`Not Registered User`);
+
+    if(user.changeCredentialsTime || 0 > decoded.iat * 1000) throw badRequest(`Token is expired please login again`);
 
     return {user,decoded};
 }

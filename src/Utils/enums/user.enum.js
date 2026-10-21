@@ -20,3 +20,9 @@ export const TokenTypeEnum = {
     ACCESS: 0,
     REFRESH: 1
 };
+
+export const flagEnum = {
+    LogoutFromAll: "Logout_From_All",
+    Logout: "Logout"
+};
+

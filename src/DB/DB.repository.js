@@ -49,8 +49,8 @@ export const updateMany = async ({ model, filter = {}, update = {}, options = {}
   return docs;
 };
 
-export const findOneAndUpdate = async ({ model, id, update , options = {} } = {}) => {
-  const doc = model.findOneAndUpdate(id, {...update, $inc: { __v: 1 } }, 
+export const findOneAndUpdate = async ({ model, filter = {}, update , options = {} } = {}) => {
+  const doc = model.findOneAndUpdate(filter, {...update, $inc: { __v: 1 } }, 
     {...options, returnDocument: 'after', runValidators: true});
   return await doc.exec();
 };

@@ -7,7 +7,11 @@ import { decrypt, encrypt } from "../../Utils/security/encryption.security.js";
 import { generateToken, getNewLoginCredentials } from "../../Utils/token/token.js";
 import { OAuth2Client } from 'google-auth-library';
 import { GOOGLE_CLIENT_ID } from "../../../config/config.service.js";
-import { providerEnum } from "../../Utils/enums/user.enum.js";
+import { flagEnum, providerEnum } from "../../Utils/enums/user.enum.js";
+import { emailSubject } from "../../Utils/enums/email.enum.js";
+import { emailEvent } from "../../Utils/events/email.event.js";
+import { generateOTP } from "../../Utils/OTP/gnerateOTP.js";
+import { TokenModel } from "../../DB/Models/token.models.js";
 
 
 
@@ -19,10 +23,19 @@ export const signup = async (req, res) => {
 
     const hashedPassword = await generateHash(password);
     const encryptedPhone = encrypt(phone);
+    const OTP = generateOTP();
+    const hashedOTP = await generateHash(OTP);
 
     const newUser = await DBservice.create({ 
         model: UserModel, 
-        data: { userName, email, password: hashedPassword, phone: encryptedPhone, gender, role, DOB } 
+        data: { userName, email, password: hashedPassword, phone: encryptedPhone, gender, role, DOB, confirmEmailOTP: hashedOTP } 
+    });
+
+    emailEvent.emit("confirmEmail", {
+        to: email,
+        subject: emailSubject.confirmEmail,
+        firstName: userName,
+        OTP: OTP,
     });
 
     return successResponse(res, 201, newUser, "User created successfully");
@@ -30,8 +43,14 @@ export const signup = async (req, res) => {
 
 export const signin = async (req, res) => {
     const { email, password } = req.body;
+    
 
-    const user = await DBservice.findOne({ model: UserModel, filter: { email } });
+    const user = await DBservice.findOneAndUpdate({ 
+        model: UserModel, 
+        filter: { email, confirmEmail: { $exists: true } },
+        update: { $unset: { changeCredentialsTime: true } },
+        options: { new: true }
+    });
     if (!user) throw notFound("Invalid email or password");
 
     const isMatch = await compareHash(password, user.password);
@@ -45,6 +64,29 @@ export const signin = async (req, res) => {
 
     return successResponse(res, 200, tokens, "User signed in successfully");
 };
+
+export const confirmEmail = async (req, res) => {
+    const { email, OTP } = req.body;
+
+    const user = await DBservice.findOne({ model: UserModel, filter: { 
+        email, 
+        confirmEmail: { $exists: false }, 
+        confirmEmailOTP: { $exists: true } 
+    } });
+    if (!user) throw notFound("Invalid email");
+
+    const isMatch = await compareHash(OTP, user.confirmEmailOTP);
+    if (!isMatch) throw notFound("Invalid OTP");
+
+    
+    await DBservice.updateOne({ 
+        model: UserModel, 
+        filter: { email }, 
+        update: { confirmEmail: Date.now(), $unset: { confirmEmailOTP: true } } 
+    });
+
+    return successResponse(res, 200, "Email confirmed successfully");
+}
 
 export const refreshToken = async (req , res) => {
     const token = await getNewLoginCredentials(req.user);
@@ -90,3 +132,76 @@ export const signInWithGoogle = async (req, res) => {
     }
 }
 
+export const forgetPassword = async (req, res) => {
+    const { email } = req.body;
+
+    const OTP = generateOTP();
+    const hashedOTP = await generateHash(OTP);
+
+    const user = await DBservice.findOneAndUpdate({ 
+        model: UserModel, 
+        filter: { email, provider: providerEnum.SYSTEM, confirmEmail: { $exists: true } }, 
+        update: { forgetPasswordOTP: hashedOTP } 
+    });
+    if (!user) throw notFound("Invalid email");
+
+    emailEvent.emit("forgetPassword", {to: email,  OTP: OTP, firstName: user.firstName});
+
+    return successResponse(res, 200, "OTP sent to your email");
+}
+
+export const resetPassword = async (req, res) => {
+    const { email, OTP, newPassword: password } = req.body;
+
+   const user = await DBservice.findOne({ 
+        model: UserModel, 
+        filter: { email, provider: providerEnum.SYSTEM, confirmEmail: { $exists: true }, forgetPasswordOTP: { $exists: true } }, 
+    });
+    if (!user) throw notFound("Invalid email");
+
+    const isOTPValid = await compareHash(OTP, user.forgetPasswordOTP);
+    if (!isOTPValid) throw badRequest("Invalid OTP");
+
+    const hashedPassword = await generateHash(password);
+
+    await DBservice.updateOne({ 
+        model: UserModel, 
+        filter: { email }, 
+        update: { password: hashedPassword, $unset: { forgetPasswordOTP: true } } 
+    });
+
+    return successResponse(res, 200, "Password reset successfully");
+}
+
+export const logout = async (req, res) => {
+    const { flag } = req.query;
+
+    let status = 200;
+    switch (flag) {
+        case flagEnum.Logout:
+            await DBservice.create({
+                model: TokenModel,
+                data:{
+                    jti: req.decoded.jti,
+                    userId: req.user._id,
+                    expiredIn: new Date(req.decoded.exp * 1000)
+                }
+            });
+            status = 201;
+            break;
+
+        case flagEnum.LogoutFromAll:
+            await DBservice.updateOne({
+                model: UserModel,
+                filter: { _id: req.user._id },
+                update: { changeCredentialsTime: Date.now() }
+            });
+            status = 200;
+            break;
+    
+        default:
+            throw badRequest("Invalid logout flag");
+    }
+
+    return successResponse(res, status, "User logged out successfully");
+}
