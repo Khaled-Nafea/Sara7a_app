@@ -1,3 +1,4 @@
+import path from "node:path";
 import connectDB from "./DB/connection.js";
 import { authRouter,userRouter, messageRouter } from "./Modules/index.js";
 import { sendEmail } from "./Utils/email/nodemailer.js";
@@ -13,6 +14,7 @@ const bootstrap = async (app, express) => {
         successResponse(res, 200, {}, `Welcome to the API`);
     });
 
+    app.use('/uploads', express.static(path.resolve('./uploads')));
     app.use(`/api/v1/auth`, authRouter);
     app.use(`/api/v1/user`, userRouter);
     app.use(`/api/v1/message`, messageRouter);
